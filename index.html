@@ -15,7 +15,7 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
 
 		<link rel="stylesheet" href="css/reveal.css">
-		<link rel="stylesheet" href="css/theme/black.css" id="theme">
+		<link rel="stylesheet" href="css/theme/cybertec.css" id="theme">
 
 		<!-- Code syntax highlighting -->
 		<link rel="stylesheet" href="lib/css/zenburn.css">
@@ -29,6 +29,13 @@
 			document.getElementsByTagName( 'head' )[0].appendChild( link );
 		</script>
 
+		
+		<style type="text/css">
+		.reveal h1 { font-size: 2.5em; color: #262842; }
+		.reveal .level2 h1 { border-bottom: 0.05em solid #8393AE; }
+		h1.title { border-bottom: 0.05em solid #8393AE; }
+		.reveal blockquote { font-size: 0.75em; width: 85%; background-color: #e1eff4; padding: 0em 2em; border-bottom: 0.1em solid #8393AE; }
+		</style>
 		<!--[if lt IE 9]>
 		<script src="lib/js/html5shiv.js"></script>
 		<![endif]-->
@@ -40,350 +47,414 @@
 
 			<!-- Any section element inside of this container is displayed as a slide -->
 			<div class="slides">
-				<section>
-					<h1>Reveal.js</h1>
-					<h3>The HTML Presentation Framework</h3>
-					<p>
-						<small>Created by <a href="http://hakim.se">Hakim El Hattab</a> / <a href="http://twitter.com/hakimel">@hakimel</a></small>
-					</p>
-				</section>
+<section class="titleslide slide level1">
+    <h1 style="font-size: 2em;" class="title">When good databases go bad</h1>
+    <h2 style="font-size: 1em;">Dealing with database corruption</h2>
+    <h3 style="font-size: 1em; margin-top: 3em;">Ants Aasma, Cybertec</h3>
+</section>
+<section>
+    <section id="introductions" class="titleslide slide level1"><h1>Introductions</h1></section>
+<section id="about-me" class="slide level2">
+    <h1>About me</h1>
+    <ul>
+        <li>Currently I work for Cybertec, helping others run PostgreSQL.
+        <ul>
+            <li>High-availability setups</li>
+            <li>Automated deployment</li>
+            <li>Making PostgreSQL run <em>FAST</em>.</li>
+            <li>Fix up databases that have gone pear shaped.</li>
+        </ul></li>
+        <li>Previously a software architect at Estonian Ministry of Interior.</li>
+        <li>ants@cybertec.at</li>
+    </ul>
+    <aside class="notes"><p>Boring stuff like document management systems or passport records keeping or realtime tracking and routing of firetrucks.</p></aside>
+</section>
+<section id="introduction" class="slide level2">
+    <h1>The problem statement</h1>
+    <ul>
+        <li>PostgreSQL is a very reliable piece of software</li>
+        <li>But sometimes Bad Stuff just happens</li>
+        <li>Being prepared will make the difference.</li>
+    </ul>
+    <blockquote>
+    <code>ERROR:  invalid page in block 572319 of relation base/123456/234567</code>
+    </blockquote>
+    <blockquote>
+    <code>ERROR:  invalid memory alloc request size 18446744073709551614</code>
+    </blockquote>
+    <aside class="notes"><p>I will try to answer questions as we go, but if I'm running short on time I will let you know and if we have time left at the end we can answer then.</p></aside>
+</section>
+<section id="overview-of-the-talk" class="slide level2">
+    <h1>Overview of the talk</h1>
+    <ul>
+        <li>What can go wrong</li>
+        <li>What to do when corruption does happen</li>
+        <li>How to recover</li>
+        <li>Keeping out of trouble</li>
+    </ul>
+<aside class="notes"><p>Because you can't fix it if you don't know what is broken.</p></aside>
+    
+</section>
+</section>
 
-				<section>
-					<h2>Hello There</h2>
-					<p>
-						reveal.js enables you to create beautiful interactive slide decks using HTML. This presentation will show you examples of what it can do.
-					</p>
-				</section>
+<section><section id="what-can-go-wrong" class="titleslide slide level1"><h1>What can go wrong?</h1>
+<aside class="notes"><p>5 min mark</p></aside></section><section id="hardware-failures" class="slide level2">
+<h1>Hardware failures</h1>
+<ul>
+<li>Broken hardware means broken databases.</li>
+<li>Lots of stuff can break your server, but for data integrity we can make do with a simplified view.
+<ul class="fragment">
+<li>CPU</li>
+<li>RAM</li>
+<li>Network</li>
+<li>Storage</li>
+<li>Power supply</li>
+</ul></li>
+</ul>
+</section><section id="cpu" class="slide level2">
+<h1>CPU</h1>
+<ul>
+<li>Rarely the issue</li>
+<li>Mostly causes crashes when it is</li>
+</ul>
+</section><section id="ram" class="slide level2">
+<h1>RAM</h1>
+<ul>
+<li>Failures are rather frequent.</li>
+<li>Occasional 1 bit errors (&quot;cosmic rays&quot;) are more rare than broken chips (e.g. row line stuck at 1).</li>
+<li>Can silently corrupt large amounts of data.</li>
+<li>ECC mostly fixes it.</li>
+</ul>
+<aside class="notes"><p>ECC means crashes, instead of corrupted data.</p></aside>
+</section><section id="network" class="slide level2">
+<h1>Network</h1>
+<ul>
+<li>TCP/IP checksums by and large take care of the data integrity issues.</li>
+<li>Use SSL if you need protection from nefarious agents or for a belt-and-suspenders approach.</li>
+<li>More about availability than integrity.</li>
+</ul>
+<aside class="notes"><p>When in doubt, test.</p></aside>
+</section><section id="storage" class="slide level2">
+<h1>Storage</h1>
+<ul>
+<li>Modern drives are on the edge of not working.
+<ul>
+<li>Raw media error rate is about 1:1000.</li>
+<li>Average block read has 32 errors.</li>
+</ul></li>
+<li>SSDs are not any better.</li>
+<li>Error correction codes mostly fix it under the covers by using 100 bytes of ECC per 4k block.
+<ul>
+<li class="fragment">Except when they don't.</li>
+</ul></li>
+</ul>
+<aside class="notes"><p>SSDs forget data and need to be refhreshed. Don't use them store your backups.</p></aside>
+</section><section id="bad-blocks" class="slide level2">
+<h1>Bad blocks</h1>
+<p></p>
+<ul>
+<li>Outside of specialized data recovery shops that data is gone.</li>
+<li>Get your database off that drive <strong>ASAP</strong>, before further damage occurs!</li>
+</ul>
+<aside class="notes"><p>Shows up in kernel logs as IO error. Good part is that you will notice it.</p></aside>
+</section><section id="silent-data-corruption" class="slide level2">
+<h1>Silent data corruption</h1>
+<blockquote>
+<p>&quot;Of the total sample of 1.53 million disks, 3855 disks developed checksum mismatches – 3088 of the 358,000 nearline disks (0.86%) and 767 of the 1.17 million enterprise class disks (0.065%).&quot; - <a href="https://www.usenix.org/legacy/event/fast08/tech/full_papers/bairavasundaram/bairavasundaram.pdf">An Analysis of Data Corruption in the Storage Stack</a></p>
+</blockquote>
+<ul>
+<li>Misdirected writes.</li>
+<li>Writes replaced with zeroes.</li>
+<li>Torn writes.</li>
+<li>Bit errors and garbage data is pretty rare.</li>
+<li>If there is damage it's pretty likely to have large amounts of it.</li>
+</ul>
+</section><section id="power-supply" class="slide level2">
+<h1>Power supply</h1>
+<ul>
+<li>In theory losing power will not cause data loss.</li>
+<li>In practice...
+<ul>
+<li>Some drives, especially cheap SSDs, lie about <code>fsync</code><ul><li>If <code>pg_test_fsync</code> numbers are too good to be true, the probably are.</li></ul></li>
+<li>PostgreSQL crash recovery does not get as much testing as normal operation.</li>
+<li>Spectacular power supply failures can fry your whole RAID set at once.</li>
+</ul></li>
+</ul>
+</section><section id="software-failures" class="slide level2">
+<h1>Software failures</h1>
+<ul>
+<li>Filesystem, storage driver, hypervisor, etc.</li>
+<li>PostgreSQL</li>
+<li>Backup and replication tools</li>
+<li>Firmware and other magic hidden in your storage system</li>
+</ul>
+</section><section id="operator-failures" class="slide level2">
+<h1>Operator failures</h1>
+<ul>
+<li>Incorrect (or missing) backup practices</li>
+<li>Accidental <code>DROP TABLE</code></li>
+<li>Overzealous optimization
+<ul>
+<li>Do <strong>NOT</strong> touch <code>fsync</code> and <code>full_page_writes</code></li>
+</ul></li>
+<li>Multiple servers accessing a single data dir.</li>
+<li>&quot;Why are all these logs are taking up disk space? They're not even readable.&quot;</li>
+</ul>
+</section></section>
+<section><section id="what-to-do-when-stuff-has-hit-the-fan" class="titleslide slide level1"><h1>What to do when stuff has hit the fan?</h1></section><section id="keep-calm" class="slide level2">
+<h1>Keep calm</h1>
+<ul>
+<li>It's easy to cause more issues by making rash decisions.</li>
+<li>Try not to burn any bridges.</li>
+</ul>
+</section><section id="keep-notes" class="slide level2">
+<h1>Keep notes</h1>
+<ul>
+<li>During times of stress it's easy to forget stuff and overlook things.</li>
+<li>Write down all error messages, steps you have tried, etc.</li>
+<li>It's extremely helpful when you need to get external help.</li>
+</ul>
+</section><section id="first-do-no-harm" class="slide level2">
+<h1>First, do no harm</h1>
+<ul>
+<li>Take a physical backup before you make things worse by trying to fix them.<ul>
+<li>Preferrably an offline backup.</li>
+<li>If offline backup is not possible, check to see if the backup is actually usable before continuing.</li>
+</ul></li>
+<li>Arrange for WALs to be kept around.</li>
+<li>Turn off any automated failover software.</li>
+<li>In case you do screw up, you can try again.</li>
+<li>In most cases disable application access while you are working.</li>
+</ul>
+</section><section id="find-and-fix-the-root-cause" class="slide level2">
+<h1>Find and fix the root cause</h1>
+<ul>
+<li>Every case of corruption is different.</li>
+<li>Figure out what is causing the problem and try to eliminate it.</li>
+<li>Establish that things are sane from the bottom up.
+<ul>
+<li>Is the hardware running ok?</li>
+<li>Any interesting error messages in system logs?</li>
+<li><p>Is the data readable?</p>
+<pre><code>find $PGDATA -type f | xargs -l md5sum</code></pre></li>
+<li>Any recent crashes?</li>
+</ul></li>
+</ul>
+<aside class="notes"><p>Crashes cause corruption and corruption causes crashes.</p></aside>
 
-				<!-- Example of nested vertical slides -->
-				<section>
-					<section>
-						<h2>Vertical Slides</h2>
-						<p>Slides can be nested inside of each other.</p>
-						<p>Use the <em>Space</em> key to navigate through all slides.</p>
-						<br>
-						<a href="#" class="navigate-down">
-							<img width="178" height="238" data-src="https://s3.amazonaws.com/hakim-static/reveal-js/arrow.png" alt="Down arrow">
-						</a>
-					</section>
-					<section>
-						<h2>Basement Level 1</h2>
-						<p>Nested slides are useful for adding additional detail underneath a high level horizontal slide.</p>
-					</section>
-					<section>
-						<h2>Basement Level 2</h2>
-						<p>That's it, time to go back up.</p>
-						<br>
-						<a href="#/2">
-							<img width="178" height="238" data-src="https://s3.amazonaws.com/hakim-static/reveal-js/arrow.png" alt="Up arrow" style="transform: rotate(180deg); -webkit-transform: rotate(180deg);">
-						</a>
-					</section>
-				</section>
+</section><section id="establish-a-plan" class="slide level2">
+<h1>Establish a plan</h1>
+<ul>
+<li>You need to figure out what steps to take to get back to a correctly running database.</li>
+<li>What is the last usable backup?</li>
+<li>Do you have WAL to do PITR from that point?</li>
+<li>Is it more important to get the database up or retain all data.</li>
+<li>Is it something you can fix in an automated fashion or do you need manual fixups.</li>
+</ul>
+<aside class="notes"><p>Restoring a backup will create a fork in the timeline. Merging the two branches is usually tricky manual labor.</p></aside>
 
-				<section>
-					<h2>Slides</h2>
-					<p>
-						Not a coder? Not a problem. There's a fully-featured visual editor for authoring these, try it out at <a href="http://slides.com" target="_blank">http://slides.com</a>.
-					</p>
-				</section>
+</section></section>
+<section><section id="how-to-recover" class="titleslide slide level1"><h1>How to recover</h1><aside class="notes"><p>Tips for some common classes of corruption.</p></aside></section><section id="index-corruption" class="slide level2">
+<h1>Index corruption</h1>
+<ul>
+<li>Complex data structure with tricky locking, so most likely to have bugs.</li>
+<li>Errors will manifest as strange query output, infinite loops.
+<ul><li>Broken indexes on system catalog indexes can result in very strange errors.</li></ul>
+</li>
 
-				<section>
-					<h2>Point of View</h2>
-					<p>
-						Press <strong>ESC</strong> to enter the slide overview.
-					</p>
-					<p>
-						Hold down alt and click on any element to zoom in on it using <a href="http://lab.hakim.se/zoom-js">zoom.js</a>. Alt + click anywhere to zoom back out.
-					</p>
-				</section>
+<li>Can be fixed by rebuilding the index using <code>REINDEX</code>.
+<ul>
+<li>For unique indexes you may get constraint violations. These will need manual fixing.</li>
+</ul></li>
+<li>Ensure you are using the latest version and your hardware is working correctly.
+<ul>
+<li>If everything else is working correctly, report a bug.</li>
+</ul></li>
+</ul>
+<!-- add symptoms here -->
+</section><section id="table-corruption" class="slide level2">
+<h1>Table corruption</h1>
+<ul>
+<li>Most likely you will lose data.</li>
+<li>Can take many forms, depending on where the bogus data is.
+<ul>
+<li>Garbage in page header usually results in whole page becoming unreadable.</li>
+<li>Garbage in tuple header (bogus xmin/xmax) causes clog/multixact misses.</li>
+<li>Garbage in row itself can be silently returned, result in memory allocation failures or even crashes.</li>
+<li>Badly linked row versions are also possible.</li>
+</ul></li>
+<li>Dump and restore is the best bet.</li>
+</ul>
+</section><section id="pg_dump-failure" class="slide level2">
+<h1>Handling pg_dump failure</h1>
+<ul>
+<li>If dump fails with errors, bisect around the broken data.</li>
+<li>I have a little tool that extracts everything readable:<blockquote><a href="https://github.com/ants/pg-recovery-tools/blob/master/trycopy.py" class="uri">https://github.com/ants/pg-recovery-tools/blob/master/trycopy.py</a></blockquote></li>
+<li>Tries to copy out a table in recursively smaller batches until it identifies the page and line pointer numbers that is causing errors or crashes. Logs them for detailed study.<ul><li>pageinspect can provide some useful information</li><li>Taking a quick look with a hex editor may also be useful</li></ul></li>
+<li>CTID scans for PostgreSQL would make this tool a lot faster...</li>
+</ul>
+</section><section id="clog-corruption" class="slide level2">
+<h1>Clog corruption</h1>
+<ul>
+<li>Invalid data leads to duplicate rows/missing rows.</li>
+<li>Missing CLOG pages means you can't access rows that reference them.
+<ul>
+<li>More likely to be caused by heap corruption and bogus XIDs.</li>
+<li>To rescue data you can fake the file by filling it with 0x55 (everything commited). Expect manual cleanup of extracted data.</li>
+</ul></li>
+</ul>
+</section><section id="pg_resetxlog" class="slide level2">
+<h1>pg_resetxlog</h1>
+<ul>
+<li>pg_resetxlog <strong>WILL</strong> break your database.</li>
+<li>Use it when database does not come up and you want extract at least some data.</li>
+<li>dump/restore is required after using.</li>
+<li>I have a little tool that allows you to replace error causing records with empty ones.</li>
+</ul>
+<blockquote><a href="https://github.com/ants/pg-recovery-tools/blob/master/xlogfilter.py" class="uri">https://github.com/ants/pg-recovery-tools/blob/master/xlogfilter.py</a></blockquote>
+</section></section>
+<section><section id="how-to-keep-yourself-out-of-trouble" class="titleslide slide level1"><h1>How to keep yourself out of trouble?</h1></section><section id="keep-up-to-date-on-updates" class="slide level2">
+<h1>Keep up to date on updates</h1>
+<ul>
+<li>New versions fix bugs.
+<ul>
+<li>You are more likely to have an issue due to not installing a bugfix release than installing it.</li>
+</ul></li>
+<li>Recently had a client with corruption on a PostgreSQL 7.4.1 instance.</li>
+<li>Upgrade your kernel too.</li>
+</ul>
+</section><section id="backups" class="slide level2">
+<h1>Backups</h1>
+<ul>
+<li>Take regularly scheduled backups.</li>
+<li>Keep as many as you can afford. Have a retention schedule.
+<ul>
+<li><code>x</code> daily backups, <code>y</code> weekly backups, <code>z</code> monthly backups</li>
+</ul></li>
+<li>Test restoring from a backup.</li>
+<li>Use WAL archiving for PITR capability.<ul><li>pg_receivexlog is very useful</li></ul></li>
+</ul>
+</section><section id="dont-use-flaky-hardware" class="slide level2">
+<h1>Don't use flaky hardware</h1>
+<ul>
+<li><p>Not using ECC memory is just asking for trouble.</p>
+<blockquote>
+<p>&quot;For example, we observe DRAM error rates that are orders of magnitude higher than previously reported, with 25,000 to 70,000 errors per billion device hours per Mbit and more than <strong>8% of DIMMs affected by errors per year</strong>.&quot; - <a href="https://www.cs.toronto.edu/~bianca/papers/sigmetrics09.pdf">DRAM Errors in the Wild: A Large-Scale Field Study</a></p>
+</blockquote></li>
+<li>Consumer level storage devices play fast and loose with your data.</li>
+<li><p>Overclocking your database server is a bad idea.</p></li>
+</ul>
+</section><section id="checksums" class="slide level2">
+<h1>Checksums</h1>
+<ul>
+<li>WAL is checksummed by default.</li>
+<li>You can turn on data checksums at initdb time.
+<ul>
+<li>Provides early detection, <em>if</em> you do regular scrubbing.</li>
+</ul></li>
+<li>Clog has no checksums :(</li>
+<li>BTRFS or ZFS will also give you checksums.
+<ul>
+<li>Huge throughput hit (50%), even on SSDs.</li>
+<li>BTRFS has horrible behaviors under heavy write loads.</li>
+<li>If your workload is light the nice features may still be worth it.</li>
+</ul></li>
+</ul>
+</section><section id="redundancy" class="slide level2">
+<h1>Redundancy</h1>
+<ul>
+<li>RAID1 and RAID5 can save you from the occasional bad block or failed drive.</li>
+<li class="fragment">Having a streaming replica will handle storage failures <strong>AND</strong> can also save your skin from OS level failures.
+<ul>
+<li class="fragment">Redundant Array of Inexpensive Servers</li>
+</ul></li>
+<li class="fragment">PostgreSQL bugs are likely to cause corruption that gets replicated to standbys.</li>
+</ul>
+</section><section id="logical-backups" class="slide level2">
+<h1>Logical backups</h1>
+<ul>
+<li>Run logical backups on a regular schedule.</li>
+<li>If you can't afford the throughput hit and long snapshot on the master server use a hot standby.
+<ul>
+<li>hot_standby_feedback = off</li>
+<li>max_standby_streaming/archive_delay = -1</li>
+<li>You probably don't want to use a high-availability standby for this</li>
+</ul></li>
+<li>Logical backups make sure that everything in the database is still readable.</li>
+</ul>
+</section></section>
+<section><section id="overview" class="titleslide slide level1"><h1>Putting it all together</h1></section><section id="recipe-for-retaining-your-data" class="slide level2">
+<h1>Recipe for retaining your data</h1>
+<ul>
+<li>Have backups available.</li>
+<li>Keep on top of bug fixes.</li>
+<li>Scrub your data.</li>
+<li>When things go south, keep calm, keep notes and </li>
+</ul>
+<!--
+Filesystem 
 
-				<section>
-					<h2>Touch Optimized</h2>
-					<p>
-						Presentations look great on touch devices, like mobile phones and tablets. Simply swipe through your slides.
-					</p>
-				</section>
+Dealing with database corruption
 
-				<section data-markdown>
-					<script type="text/template">
-						## Markdown support
 
-						Write content using inline or external Markdown.
-						Instructions and more info available in the [readme](https://github.com/hakimel/reveal.js#markdown).
 
-						```
-						<section data-markdown>
-						  ## Markdown support
+More bits & same size => smaller bits
+Smaller bits => Increased per bit error
 
-						  Write content using inline or external Markdown.
-						  Instructions and more info available in the [readme](https://github.com/hakimel/reveal.js#markdown).
-						</section>
-						```
-					</script>
-				</section>
+More bits && More errors per bit => Bad stuff
 
-				<section>
-					<section id="fragments">
-						<h2>Fragments</h2>
-						<p>Hit the next arrow...</p>
-						<p class="fragment">... to step through ...</p>
-						<p><span class="fragment">... a</span> <span class="fragment">fragmented</span> <span class="fragment">slide.</span></p>
 
-						<aside class="notes">
-							This slide has fragments which are also stepped through in the notes window.
-						</aside>
-					</section>
-					<section>
-						<h2>Fragment Styles</h2>
-						<p>There's different types of fragments, like:</p>
-						<p class="fragment grow">grow</p>
-						<p class="fragment shrink">shrink</p>
-						<p class="fragment fade-out">fade-out</p>
-						<p class="fragment current-visible">current-visible</p>
-						<p class="fragment highlight-red">highlight-red</p>
-						<p class="fragment highlight-blue">highlight-blue</p>
-					</section>
-				</section>
+Literature:
 
-				<section id="transitions">
-					<h2>Transition Styles</h2>
-					<p>
-						You can select from different transitions, like: <br>
-						<a href="?transition=none#/transitions">None</a> -
-						<a href="?transition=fade#/transitions">Fade</a> -
-						<a href="?transition=slide#/transitions">Slide</a> -
-						<a href="?transition=convex#/transitions">Convex</a> -
-						<a href="?transition=concave#/transitions">Concave</a> -
-						<a href="?transition=zoom#/transitions">Zoom</a>
-					</p>
-				</section>
+DRAM errors in the wild
+https://www.cs.toronto.edu/~bianca/papers/sigmetrics09.pdf
 
-				<section id="themes">
-					<h2>Themes</h2>
-					<p>
-						reveal.js comes with a few themes built in: <br>
-						<!-- Hacks to swap themes after the page has loaded. Not flexible and only intended for the reveal.js demo deck. -->
-						<a href="#" onclick="document.getElementById('theme').setAttribute('href','css/theme/black.css'); return false;">Black (default)</a> -
-						<a href="#" onclick="document.getElementById('theme').setAttribute('href','css/theme/white.css'); return false;">White</a> -
-						<a href="#" onclick="document.getElementById('theme').setAttribute('href','css/theme/league.css'); return false;">League</a> -
-						<a href="#" onclick="document.getElementById('theme').setAttribute('href','css/theme/sky.css'); return false;">Sky</a> -
-						<a href="#" onclick="document.getElementById('theme').setAttribute('href','css/theme/beige.css'); return false;">Beige</a> -
-						<a href="#" onclick="document.getElementById('theme').setAttribute('href','css/theme/simple.css'); return false;">Simple</a> <br>
-						<a href="#" onclick="document.getElementById('theme').setAttribute('href','css/theme/serif.css'); return false;">Serif</a> -
-						<a href="#" onclick="document.getElementById('theme').setAttribute('href','css/theme/blood.css'); return false;">Blood</a> -
-						<a href="#" onclick="document.getElementById('theme').setAttribute('href','css/theme/night.css'); return false;">Night</a> -
-						<a href="#" onclick="document.getElementById('theme').setAttribute('href','css/theme/moon.css'); return false;">Moon</a> -
-						<a href="#" onclick="document.getElementById('theme').setAttribute('href','css/theme/solarized.css'); return false;">Solarized</a>
-					</p>
-				</section>
+"For example, we observe DRAM error rates that are orders of magnitude higher than previously reported, with 25,000 to 70,000 errors per billion device hours per Mbit and more than 8% of DIMMs affectedby errors per year."
 
-				<section>
-					<section data-background="#dddddd">
-						<h2>Slide Backgrounds</h2>
-						<p>
-							Set <code>data-background="#dddddd"</code> on a slide to change the background color. All CSS color formats are supported.
-						</p>
-						<a href="#" class="navigate-down">
-							<img width="178" height="238" data-src="https://s3.amazonaws.com/hakim-static/reveal-js/arrow.png" alt="Down arrow">
-						</a>
-					</section>
-					<section data-background="https://s3.amazonaws.com/hakim-static/reveal-js/image-placeholder.png">
-						<h2>Image Backgrounds</h2>
-						<pre><code class="hljs">&lt;section data-background="image.png"&gt;</code></pre>
-					</section>
-					<section data-background="https://s3.amazonaws.com/hakim-static/reveal-js/image-placeholder.png" data-background-repeat="repeat" data-background-size="100px">
-						<h2>Tiled Backgrounds</h2>
-						<pre><code class="hljs" style="word-wrap: break-word;">&lt;section data-background="image.png" data-background-repeat="repeat" data-background-size="100px"&gt;</code></pre>
-					</section>
-					<section data-background-video="https://s3.amazonaws.com/static.slid.es/site/homepage/v1/homepage-video-editor.mp4,https://s3.amazonaws.com/static.slid.es/site/homepage/v1/homepage-video-editor.webm" data-background-color="#000000">
-						<div style="background-color: rgba(0, 0, 0, 0.9); color: #fff; padding: 20px;">
-							<h2>Video Backgrounds</h2>
-							<pre><code class="hljs" style="word-wrap: break-word;">&lt;section data-background-video="video.mp4,video.webm"&gt;</code></pre>
-						</div>
-					</section>
-					<section data-background="http://i.giphy.com/90F8aUepslB84.gif">
-						<h2>... and GIFs!</h2>
-					</section>
-				</section>
+Are Disks the Dominant Contributor for Storage Failures? 
+https://www.usenix.org/legacy/event/fast08/tech/full_papers/jiang/jiang_html/
 
-				<section data-transition="slide" data-background="#4d7e65" data-background-transition="zoom">
-					<h2>Background Transitions</h2>
-					<p>
-						Different background transitions are available via the backgroundTransition option. This one's called "zoom".
-					</p>
-					<pre><code class="hljs">Reveal.configure({ backgroundTransition: 'zoom' })</code></pre>
-				</section>
 
-				<section data-transition="slide" data-background="#b5533c" data-background-transition="zoom">
-					<h2>Background Transitions</h2>
-					<p>
-						You can override background transitions per-slide.
-					</p>
-					<pre><code class="hljs" style="word-wrap: break-word;">&lt;section data-background-transition="zoom"&gt;</code></pre>
-				</section>
+Data corruption kinds
 
-				<section>
-					<h2>Pretty Code</h2>
-					<pre><code class="hljs" data-trim contenteditable>
-function linkify( selector ) {
-  if( supports3DTransforms ) {
+Data path corruption
+Misdirected write
+Torn write
+Missed wrte
 
-    var nodes = document.querySelectorAll( selector );
+RAID-5 
+Scrubbing
 
-    for( var i = 0, len = nodes.length; i &lt; len; i++ ) {
-      var node = nodes[i];
 
-      if( !node.className ) {
-        node.className += ' roll';
-      }
-    }
-  }
-}
-					</code></pre>
-					<p>Code syntax highlighting courtesy of <a href="http://softwaremaniacs.org/soft/highlight/en/description/">highlight.js</a>.</p>
-				</section>
 
-				<section>
-					<h2>Marvelous List</h2>
-					<ul>
-						<li>No order here</li>
-						<li>Or here</li>
-						<li>Or here</li>
-						<li>Or here</li>
-					</ul>
-				</section>
+Logical backups help detect problems
 
-				<section>
-					<h2>Fantastic Ordered List</h2>
-					<ol>
-						<li>One is smaller than...</li>
-						<li>Two is smaller than...</li>
-						<li>Three!</li>
-					</ol>
-				</section>
 
-				<section>
-					<h2>Tabular Tables</h2>
-					<table>
-						<thead>
-							<tr>
-								<th>Item</th>
-								<th>Value</th>
-								<th>Quantity</th>
-							</tr>
-						</thead>
-						<tbody>
-							<tr>
-								<td>Apples</td>
-								<td>$1</td>
-								<td>7</td>
-							</tr>
-							<tr>
-								<td>Lemonade</td>
-								<td>$2</td>
-								<td>18</td>
-							</tr>
-							<tr>
-								<td>Bread</td>
-								<td>$3</td>
-								<td>2</td>
-							</tr>
-						</tbody>
-					</table>
-				</section>
 
-				<section>
-					<h2>Clever Quotes</h2>
-					<p>
-						These guys come in two forms, inline: <q cite="http://searchservervirtualization.techtarget.com/definition/Our-Favorite-Technology-Quotations">
-						&ldquo;The nice thing about standards is that there are so many to choose from&rdquo;</q> and block:
-					</p>
-					<blockquote cite="http://searchservervirtualization.techtarget.com/definition/Our-Favorite-Technology-Quotations">
-						&ldquo;For years there has been a theory that millions of monkeys typing at random on millions of typewriters would
-						reproduce the entire works of Shakespeare. The Internet has proven this theory to be untrue.&rdquo;
-					</blockquote>
-				</section>
+https://www.usenix.org/legacy/event/fast08/tech/full_papers/bairavasundaram/bairavasundaram.pdf
 
-				<section>
-					<h2>Intergalactic Interconnections</h2>
-					<p>
-						You can link between slides internally,
-						<a href="#/2/3">like this</a>.
-					</p>
-				</section>
+"Of the total sample of 1.53 million disks, 3855 disks developed checksum mismatches –  3088 of the 358,000 nearline disks (0.86%) and 767 of the 1.17 million enterprise class disks (0.065%)."
 
-				<section>
-					<h2>Speaker View</h2>
-					<p>There's a <a href="https://github.com/hakimel/reveal.js#speaker-notes">speaker view</a>. It includes a timer, preview of the upcoming slide as well as your speaker notes.</p>
-					<p>Press the <em>S</em> key to try it out.</p>
 
-					<aside class="notes">
-						Oh hey, these are some notes. They'll be hidden in your presentation, but you can see them if you open the speaker notes window (hit 's' on your keyboard).
-					</aside>
-				</section>
+Table corruption
+Index corruption
+Toast corruption
+Clog corruption, xlog corruption
 
-				<section>
-					<h2>Export to PDF</h2>
-					<p>Presentations can be <a href="https://github.com/hakimel/reveal.js#pdf-export">exported to PDF</a>, here's an example:</p>
-					<iframe src="https://www.slideshare.net/slideshow/embed_code/42840540" width="445" height="355" frameborder="0" marginwidth="0" marginheight="0" scrolling="no" style="border:3px solid #666; margin-bottom:5px; max-width: 100%;" allowfullscreen> </iframe>
-				</section>
 
-				<section>
-					<h2>Global State</h2>
-					<p>
-						Set <code>data-state="something"</code> on a slide and <code>"something"</code>
-						will be added as a class to the document element when the slide is open. This lets you
-						apply broader style changes, like switching the page background.
-					</p>
-				</section>
 
-				<section data-state="customevent">
-					<h2>State Events</h2>
-					<p>
-						Additionally custom events can be triggered on a per slide basis by binding to the <code>data-state</code> name.
-					</p>
-					<pre><code class="javascript" data-trim contenteditable style="font-size: 18px;">
-Reveal.addEventListener( 'customevent', function() {
-	console.log( '"customevent" has fired' );
-} );
-					</code></pre>
-				</section>
-
-				<section>
-					<h2>Take a Moment</h2>
-					<p>
-						Press B or . on your keyboard to pause the presentation. This is helpful when you're on stage and want to take distracting slides off the screen.
-					</p>
-				</section>
-
-				<section>
-					<h2>Much more</h2>
-					<ul>
-						<li>Right-to-left support</li>
-						<li><a href="https://github.com/hakimel/reveal.js#api">Extensive JavaScript API</a></li>
-						<li><a href="https://github.com/hakimel/reveal.js#auto-sliding">Auto-progression</a></li>
-						<li><a href="https://github.com/hakimel/reveal.js#parallax-background">Parallax backgrounds</a></li>
-						<li><a href="https://github.com/hakimel/reveal.js#keyboard-bindings">Custom keyboard bindings</a></li>
-					</ul>
-				</section>
-
-				<section style="text-align: left;">
-					<h1>THE END</h1>
-					<p>
-						- <a href="http://slides.com">Try the online editor</a> <br>
-						- <a href="https://github.com/hakimel/reveal.js">Source code &amp; documentation</a>
-					</p>
-				</section>
-
+-->
+</section></section>
+<section><section id="that-is-all" class="titleslide slide level1"><h1>That is all</h1></section></section>
+<section><section id="questions" class="titleslide slide level1"><h1>Questions?</h1></section></section>
 			</div>
-
+<div id="cybertecLogo" style="background: url(images/logo.png); position: absolute; bottom: 2.5%; left: 3%; width: 14%; height: 0; padding-bottom: 7%; background-size: 100% 100%;"></div>
 		</div>
 
 		<script src="lib/js/head.min.js"></script>
 		<script src="js/reveal.js"></script>
 
 		<script>
-
 			// Full list of configuration options available at:
 			// https://github.com/hakimel/reveal.js#configuration
 			Reveal.initialize({
@@ -391,9 +462,8 @@ Reveal.addEventListener( 'customevent', function() {
 				progress: true,
 				history: true,
 				center: true,
-
 				transition: 'slide', // none/fade/slide/convex/concave/zoom
-
+				transitionSpeed: 'fast',
 				// Optional reveal.js plugins
 				dependencies: [
 					{ src: 'lib/js/classList.js', condition: function() { return !document.body.classList; } },
@@ -404,7 +474,6 @@ Reveal.addEventListener( 'customevent', function() {
 					{ src: 'plugin/notes/notes.js', async: true }
 				]
 			});
-
 		</script>
 
 	</body>
